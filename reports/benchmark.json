@@ -1,0 +1,24 @@
+{
+  "dataset": "US EPA AirData Daily AQI by County 2024",
+  "source_url": "https://aqs.epa.gov/aqsweb/airdata/daily_aqi_by_county_2024.zip",
+  "input_sha256": "d2f6956102fb0557519806192f1d489fda821c5800e7d3d0f9c8324a7239f2a7",
+  "source_rows": 329597,
+  "county_day_records": 329597,
+  "counties": 997,
+  "date_range": ["2024-01-01", "2024-12-31"],
+  "category_counts": {
+    "Above AQI scale": 7,
+    "Good": 244769,
+    "Hazardous": 17,
+    "Moderate": 80825,
+    "Unhealthy": 625,
+    "Unhealthy for Sensitive Groups": 3273,
+    "Very Unhealthy": 81
+  },
+  "county_days_aqi_over_100": 4003,
+  "county_days_aqi_over_150": 730,
+  "county_days_aqi_over_200": 105,
+  "rule": "Use the maximum AQI reported for each county and date; categories are descriptive AQI bands. A county-day above 100 is flagged for public-health context, not as a personalized medical alert.",
+  "method": "Group by state, county, and date; retain the maximum supplied county-day AQI; apply explicit AQI category boundaries.",
+  "limitations": "Coverage depends on monitoring and reporting. County-level values do not describe every neighborhood or individual exposure. This is descriptive aggregation, not a forecast or emergency alert service."
+}

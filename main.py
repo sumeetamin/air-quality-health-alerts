@@ -1,20 +1,72 @@
-"""Create transparent daily AQI alerts from public station observations."""
-import argparse,json
+"""Create transparent county-day AQI categories and aggregate summaries."""
+import argparse
+import hashlib
+import json
 from pathlib import Path
+
 import pandas as pd
-def category(x):
- if pd.isna(x):return "Unknown"
- for edge,label in [(50,"Good"),(100,"Moderate"),(150,"Unhealthy for sensitive groups"),(200,"Unhealthy"),(300,"Very unhealthy"),(500,"Hazardous")]:
-  if x<=edge:return label
- return "Invalid"
+
+
+def category(value):
+    if pd.isna(value):
+        return "Unknown"
+    for edge, label in [
+        (50, "Good"),
+        (100, "Moderate"),
+        (150, "Unhealthy for Sensitive Groups"),
+        (200, "Unhealthy"),
+        (300, "Very Unhealthy"),
+        (500, "Hazardous"),
+    ]:
+        if value <= edge:
+            return label
+    return "Above AQI scale"
+
+
 def main():
- p=argparse.ArgumentParser(description=__doc__);p.add_argument("--input",required=True);p.add_argument("--date",default="Date");p.add_argument("--aqi",default="AQI");p.add_argument("--station",default="SiteName");p.add_argument("--out",default="outputs");a=p.parse_args()
- d=pd.read_csv(a.input);d[a.date]=pd.to_datetime(d[a.date],errors="coerce");d[a.aqi]=pd.to_numeric(d[a.aqi],errors="coerce");d=d.dropna(subset=[a.date,a.aqi])
- keys=[c for c in [a.station] if c in d]
- daily=d.groupby(keys+[a.date],dropna=False)[a.aqi].max().rename("daily_peak_aqi").reset_index()
- daily["category"]=daily.daily_peak_aqi.map(category);daily["alert"]=daily.daily_peak_aqi>=101
- if keys:daily["consecutive_alert_days"]=daily.groupby(keys).alert.transform(lambda x:x.astype(int).rolling(3,min_periods=1).sum())
- out=Path(a.out);out.mkdir(parents=True,exist_ok=True);daily.to_csv(out/"daily_station_alerts.csv",index=False)
- summary={"records":len(daily),"days_over_100":int((daily.daily_peak_aqi>100).sum()),"source_rows":len(d),"grouping":keys or "all observations"}
- (out/"summary.json").write_text(json.dumps(summary,indent=2));print(json.dumps(summary,indent=2))
-if __name__=="__main__":main()
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--input", required=True)
+    parser.add_argument("--date", default="Date")
+    parser.add_argument("--aqi", default="AQI")
+    parser.add_argument("--state", default="State Name")
+    parser.add_argument("--county", default="county Name")
+    parser.add_argument("--out", default="outputs")
+    args = parser.parse_args()
+
+    source = Path(args.input)
+    data = pd.read_csv(source)
+    data[args.date] = pd.to_datetime(data[args.date], errors="coerce")
+    data[args.aqi] = pd.to_numeric(data[args.aqi], errors="coerce")
+    data = data.dropna(subset=[args.date, args.aqi])
+    groups = [column for column in [args.state, args.county] if column in data]
+    keys = groups + [args.date]
+    daily = data.groupby(keys, dropna=False)[args.aqi].max().rename("daily_peak_aqi").reset_index()
+    daily["category"] = daily["daily_peak_aqi"].map(category)
+    daily["unhealthy_for_sensitive_groups_or_worse"] = daily["daily_peak_aqi"] > 100
+
+    out = Path(args.out)
+    out.mkdir(parents=True, exist_ok=True)
+    # Location-level alert rows stay local. Public benchmark output is aggregate only.
+    daily.to_csv(out / "daily_county_aqi.csv", index=False)
+    report = {
+        "dataset": "US EPA AirData Daily AQI by County 2024",
+        "source_url": "https://aqs.epa.gov/aqsweb/airdata/daily_aqi_by_county_2024.zip",
+        "input_sha256": hashlib.sha256(source.read_bytes()).hexdigest(),
+        "source_rows": int(len(data)),
+        "county_day_records": int(len(daily)),
+        "counties": int(daily[groups].drop_duplicates().shape[0]) if groups else None,
+        "date_range": [daily[args.date].min().date().isoformat(), daily[args.date].max().date().isoformat()],
+        "category_counts": {str(k): int(v) for k, v in daily["category"].value_counts().sort_index().items()},
+        "county_days_aqi_over_100": int((daily["daily_peak_aqi"] > 100).sum()),
+        "county_days_aqi_over_150": int((daily["daily_peak_aqi"] > 150).sum()),
+        "county_days_aqi_over_200": int((daily["daily_peak_aqi"] > 200).sum()),
+        "rule": "Use the maximum AQI reported for each county and date; categories are descriptive AQI bands. A county-day above 100 is flagged for public-health context, not as a personalized medical alert.",
+        "method": "Group by state, county, and date; retain the maximum supplied county-day AQI; apply explicit AQI category boundaries.",
+        "limitations": "Coverage depends on monitoring and reporting. County-level values do not describe every neighborhood or individual exposure. This is descriptive aggregation, not a forecast or emergency alert service.",
+    }
+    (out / "benchmark.json").write_text(json.dumps(report, indent=2))
+    print(json.dumps(report, indent=2))
+
+
+if __name__ == "__main__":
+    main()
